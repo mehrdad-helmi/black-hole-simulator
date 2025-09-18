@@ -1,15 +1,15 @@
 // vite.config.ts
 import { defineConfig } from 'vite';
 import checker from 'vite-plugin-checker';
+import glsl from 'vite-plugin-glsl';
 
 export default defineConfig({
 	plugins: [
+		glsl(),
 		checker({
 			typescript: { tsconfigPath: 'tsconfig.json' },
 			eslint: {
-				// Windows/PowerShell-safe; no quoted globs
 				lintCommand: 'eslint --ext .ts src',
-				// ESLint v9 + flat config
 				useFlatConfig: true,
 			},
 			overlay: { initialIsOpen: false },
