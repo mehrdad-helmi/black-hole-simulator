@@ -1,14 +1,15 @@
 import { GUI } from 'lil-gui';
 
-// Backgrounds
+// Backgrounds (your list)
 import hazyNebula1 from './assets/galactic_plane_hazy_nebulae_1.png';
 import hazyNebula2 from './assets/galactic_plane_hazy_nebulae_2.png';
 import noNebula1 from './assets/galactic_plane_no_nebulae_1.png';
 import noNebula2 from './assets/galactic_plane_no_nebulae_2.png';
 import multiNebula1 from './assets/rich_multi_nebulae_1.png';
 import multiNebula2 from './assets/rich_multi_nebulae_2.png';
-import vertSrc from './shaders/fullscreen.vert?raw';
-import fragSrc from './shaders/scene.frag?raw';
+import { addVersionFolder, versionNames } from './gui';
+import vertSrc from './shaders/v2/fullscreen.vert';
+import fragSrc from './shaders/v2/scene.frag';
 
 const backgrounds = [hazyNebula1, hazyNebula2, noNebula1, noNebula2, multiNebula1, multiNebula2];
 
@@ -47,8 +48,8 @@ gl.useProgram(program);
 const uResolution = gl.getUniformLocation(program, 'uResolution');
 const uTime = gl.getUniformLocation(program, 'uTime');
 const uAspect = gl.getUniformLocation(program, 'uAspect');
-const uScaleM = gl.getUniformLocation(program, 'uScaleM');
 const uMassM = gl.getUniformLocation(program, 'uMassM');
+const uObserverR = gl.getUniformLocation(program, 'uObserverR');
 const uExposure = gl.getUniformLocation(program, 'uExposure');
 const uGamma = gl.getUniformLocation(program, 'uGamma');
 const uUseTex = gl.getUniformLocation(program, 'uUseTex');
@@ -60,35 +61,47 @@ const uCamRot = gl.getUniformLocation(program, 'uCamRot'); // mat3
 // ----- GUI params -----
 const params = {
 	// physics
-	scaleM: 8.0,
 	massM: 1.0,
-	quality: 64,
+	observerR: 8.0, // in M
+	quality: 512,
 
 	// display
 	exposure: 1.2,
 	gamma: 1.0,
 
-	// camera
-	fovY: 100.0,
-	yaw: 0.0,
-	pitch: 0.0,
-	roll: 0.0,
+	// camera (orbit)
+	fovY: 100.0, // vertical FOV in degrees (default you asked)
+	azimuth: 0.0, // degrees, 0 = +Z toward BH, orbit around Y-up
+	elevation: 0.0, // degrees, -89..+89 (0 = equatorial plane)
+	autoRotateAzimuth: false,
+	autoRotateElevation: false,
+	autoDolly: false,
+	rotSpeedDegPerSec: 10.0,
+	dollyTarget: 8.0, // target distance
+	dollySpeed: 0.5, // lerp factor
+	dragSensitivity: 0.3, // degrees per pixel
 
 	// background
 	useTexture: true,
 	bg: backgrounds[0],
 };
-const derived = { shadowRadiusNDC: 0.0 };
+const derived = { thetaShadowDeg: 0.0 };
 
 const gui = new GUI();
-gui.title('Black Hole — Debug');
-gui.add(params, 'scaleM', 2.0, 50.0, 0.1).name('Scale (M per NDC)');
+gui.title(versionNames.assertionDisk);
 gui.add(params, 'massM', 0.2, 5.0, 0.1).name('Mass M');
-gui.add(params, 'quality', 16, 128, 2).name('Integration steps');
-gui.add(params, 'fovY', 20, 120, 1).name('FOV (deg)');
-gui.add(params, 'yaw', -180, 180, 1).name('Yaw');
-gui.add(params, 'pitch', -89, 89, 1).name('Pitch');
-gui.add(params, 'roll', -180, 180, 1).name('Roll');
+gui.add(params, 'observerR', 5.0, 60.0, 1.0).name('Observer r (M)').listen();
+gui.add(params, 'quality', 32, 1024, 4).name('Integration steps');
+gui.add(params, 'fovY', 30, 140, 1).name('FOV (deg)');
+gui.add(params, 'azimuth', -180, 180, 1).name('Orbit azimuth').listen();
+gui.add(params, 'autoRotateAzimuth').name('Auto-rotate Azimuth');
+gui.add(params, 'elevation', -89, 89, 1).name('Orbit elevation').listen();
+gui.add(params, 'autoRotateElevation').name('Auto-rotate Elevation');
+gui.add(params, 'rotSpeedDegPerSec', 1, 60, 1).name('Rotate speed');
+gui.add(params, 'autoDolly').name('Auto dolly zoom');
+gui.add(params, 'dollyTarget', 5, 60, 1).name('Dolly target (M)');
+gui.add(params, 'dollySpeed', 0.1, 5.0, 0.1).name('Dolly speed');
+gui.add(params, 'dragSensitivity', 0.1, 1.0, 0.05).name('Drag sens');
 gui.add(params, 'exposure', 0.2, 3.0, 0.05).name('Exposure');
 gui.add(params, 'gamma', 0.6, 2.2, 0.01).name('Gamma');
 gui.add(params, 'useTexture').name('Use sky texture');
@@ -102,8 +115,8 @@ gui
 			skyTex = makeTexture(img);
 		};
 	});
-gui.add(derived, 'shadowRadiusNDC').name('Shadow radius (NDC)').listen();
-
+gui.add(derived, 'thetaShadowDeg').name('Shadow θ (deg)').listen();
+addVersionFolder(gui);
 // ----- Texture -----
 function makeTexture(image: HTMLImageElement) {
 	const tex = gl.createTexture()!;
@@ -138,14 +151,82 @@ function resizeCanvas() {
 	}
 	gl.viewport(0, 0, canvas.width, canvas.height);
 }
-
 function deg2rad(d: number) {
 	return (d * Math.PI) / 180;
 }
 
+// build a look-at rotation that faces the BH at the origin from an orbital position.
+// We only need the rotation matrix (no translation for the shader).
+function orbitRotationMatrix(azDeg: number, elDeg: number) {
+	const az = deg2rad(azDeg);
+	const el = deg2rad(elDeg);
+	// Camera position on sphere r=1 (direction only)
+	const cosEl = Math.cos(el),
+		sinEl = Math.sin(el);
+	const cosAz = Math.cos(az),
+		sinAz = Math.sin(az);
+	// Position in world (unit sphere)
+	const px = cosEl * sinAz; // choose +Z forward convention
+	const py = sinEl;
+	const pz = cosEl * cosAz;
+
+	// Forward points from camera to BH at origin = -pos
+	const fx = -px,
+		fy = -py,
+		fz = -pz;
+	const fLen = Math.hypot(fx, fy, fz);
+	const fxn = fx / fLen,
+		fyn = fy / fLen,
+		fzn = fz / fLen;
+
+	// World up (approx). If near poles, this is fine for UI; avoids gimbal lock for el≠±90
+	const upx = 0,
+		upy = 1,
+		upz = 0;
+
+	// Right = up × forward
+	let rx = upy * fzn - upz * fyn;
+	let ry = upz * fxn - upx * fzn;
+	let rz = upx * fyn - upy * fxn;
+	const rLen = Math.hypot(rx, ry, rz) || 1;
+	rx /= rLen;
+	ry /= rLen;
+	rz /= rLen;
+
+	// True up = forward × right
+	const ux = fyn * rz - fzn * ry;
+	const uy = fzn * rx - fxn * rz;
+	const uz = fxn * ry - fyn * rx;
+
+	// Columns = [right, up, forward]
+	return new Float32Array([rx, ux, fxn, ry, uy, fyn, rz, uz, fzn]);
+}
+
+let lastMs = 0;
 function frame(tMs: number) {
+	const dt = (tMs - lastMs) * 0.001;
+	lastMs = tMs;
 	resizeCanvas();
-	derived.shadowRadiusNDC = (3 * Math.sqrt(3) * params.massM) / params.scaleM;
+
+	// presentation: angular shadow radius in degrees
+	const bc = 3 * Math.sqrt(3) * params.massM;
+	derived.thetaShadowDeg = (Math.atan(bc / params.observerR) * 180) / Math.PI;
+
+	if (params.autoRotateAzimuth) {
+		params.azimuth += params.rotSpeedDegPerSec * dt;
+		if (params.azimuth > 180) params.azimuth -= 360;
+		else if (params.azimuth < -180) params.azimuth += 360;
+	}
+
+	if (params.autoRotateElevation) {
+		params.elevation += params.rotSpeedDegPerSec * dt;
+		if (params.elevation > 89) params.elevation -= 178;
+		else if (params.elevation < -89) params.elevation += 178;
+	}
+
+	// Smooth dolly towards target
+	if (params.autoDolly)
+		params.observerR += (params.dollyTarget - params.observerR) * params.dollySpeed * dt;
 
 	gl.clearColor(0, 0, 0, 1);
 	gl.clear(gl.COLOR_BUFFER_BIT);
@@ -153,34 +234,16 @@ function frame(tMs: number) {
 	gl.uniform2f(uResolution, canvas.width, canvas.height);
 	gl.uniform1f(uTime, tMs * 0.001);
 	gl.uniform1f(uAspect, canvas.width / canvas.height);
-	gl.uniform1f(uScaleM, params.scaleM);
 	gl.uniform1f(uMassM, params.massM);
+	gl.uniform1f(uObserverR, params.observerR);
 	gl.uniform1f(uExposure, params.exposure);
 	gl.uniform1f(uGamma, params.gamma);
 	gl.uniform1i(uUseTex, params.useTexture ? 1 : 0);
 	gl.uniform1i(uQuality, params.quality);
 	gl.uniform1f(uFovY, deg2rad(params.fovY));
 
-	// Build yaw/pitch/roll matrix
-	const cy = Math.cos(deg2rad(params.yaw)),
-		sy = Math.sin(deg2rad(params.yaw));
-	const cp = Math.cos(deg2rad(params.pitch)),
-		sp = Math.sin(deg2rad(params.pitch));
-	const cr = Math.cos(deg2rad(params.roll)),
-		sr = Math.sin(deg2rad(params.roll));
-
-	// R = Rz(yaw) * Rx(pitch) * Ry(roll) [you can reorder if needed]
-	const rot = new Float32Array([
-		cy * cr + sy * sp * sr,
-		sr * cp,
-		-sy * cr + cy * sp * sr,
-		-cy * sr + sy * sp * cr,
-		cr * cp,
-		sr * sy + cy * sp * cr,
-		sy * cp,
-		-sp,
-		cy * cp,
-	]);
+	// Orbit camera -> rotation matrix
+	const rot = orbitRotationMatrix(params.azimuth, params.elevation);
 	gl.uniformMatrix3fv(uCamRot, false, rot);
 
 	if (skyTex) {
@@ -193,3 +256,31 @@ function frame(tMs: number) {
 	requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+let isDragging = false;
+let lastX = 0,
+	lastY = 0;
+
+canvas.addEventListener('mousedown', (e) => {
+	isDragging = true;
+	lastX = e.clientX;
+	lastY = e.clientY;
+});
+canvas.addEventListener('mouseup', () => {
+	isDragging = false;
+});
+canvas.addEventListener('mouseleave', () => {
+	isDragging = false;
+});
+canvas.addEventListener('mousemove', (e) => {
+	if (!isDragging) return;
+	const dx = e.clientX - lastX;
+	const dy = e.clientY - lastY;
+	lastX = e.clientX;
+	lastY = e.clientY;
+
+	params.azimuth += dx * params.dragSensitivity;
+	params.elevation -= dy * params.dragSensitivity;
+	if (params.elevation > 89) params.elevation = 89;
+	if (params.elevation < -89) params.elevation = -89;
+});

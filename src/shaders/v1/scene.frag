@@ -7,14 +7,14 @@ out vec4 outColor;
 uniform vec2  uResolution;
 uniform float uTime;
 uniform float uAspect;     // width / height
-uniform float uScaleM;     // M per NDC unit
 uniform float uMassM;      // black hole mass (geom)
+uniform float uObserverR;  // observer radius in M
 uniform float uExposure;
 uniform float uGamma;
 uniform bool  uUseTex;
 uniform sampler2D uTex;
 uniform int   uQuality;
-uniform float uFovY;       // vertical FOV (radians)
+uniform float uFovY;       // vertical FOV (rad)
 uniform mat3  uCamRot;     // yaw/pitch/roll rotation
 
 // ---------- helpers ----------
@@ -95,22 +95,25 @@ void main() {
 	// rotate into world
 	vec3 ray = normalize(uCamRot * rayCam);
 	
-	// --- CORRECT impact parameter using angular radius (fix for oval) ---
-	// angular radius proxy in camera space (small-angle): rho = sqrt((x*tanFovX/2)^2 + (y*tanFovY/2)^2)
-	float rho = length(vec2(ndc.x * tanHalfFovX, ndc.y * tanHalfFovY));
-	float b   = rho * uScaleM;   // M
+	// camera forward
+	vec3 camForward = normalize(uCamRot * vec3(0.0, 0.0, 1.0));
+	
+	// angle between ray and forward
+	float cosTheta = clamp(dot(ray, camForward), -1.0, 1.0);
+	float theta = acos(cosTheta);
+	
+	// physical impact parameter at finite observer radius
+	float b = uObserverR * tan(theta); // [M]
 	
 	float M = uMassM;
-	float b_c = 3.0*sqrt(3.0)*M;
+	float b_c = 3.0 * sqrt(3.0) * M;
 	if (b <= b_c) { outColor = vec4(0.0); return; }
 	
 	float alpha = deflection_alpha(b, M, uQuality);
 	
-	// rotate around the plane defined by (ray, camera forward)
-	vec3 camForward = normalize(uCamRot * vec3(0.0, 0.0, 1.0));
+	// bend around the normal of the (ray, forward) plane
 	vec3 axis = normalize(cross(ray, camForward));
 	if (length(axis) < 1e-6) axis = vec3(0.0, 1.0, 0.0);
-	
 	vec3 dir_src = rotateAroundAxis(ray, axis, -alpha);
 	
 	vec3 col = uUseTex
