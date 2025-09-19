@@ -1,7 +1,7 @@
 import type { GUI } from 'lil-gui';
 
 export const versionNames = {
-	schwarzschild: 'Schwarzschild',
+	schwarzschild: 'Schwarzschild Model',
 	assertionDisk: 'Schwarzschild + Assertion Disk + Hot Gas',
 };
 

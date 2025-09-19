@@ -1,6 +1,6 @@
 import { GUI } from 'lil-gui';
 
-// Backgrounds (your list)
+// Backgrounds
 import hazyNebula1 from './assets/galactic_plane_hazy_nebulae_1.png';
 import hazyNebula2 from './assets/galactic_plane_hazy_nebulae_2.png';
 import noNebula1 from './assets/galactic_plane_no_nebulae_1.png';
@@ -70,16 +70,18 @@ const params = {
 	gamma: 1.0,
 
 	// camera (orbit)
-	fovY: 100.0, // vertical FOV in degrees (default you asked)
+	fovY: 100.0, // vertical FOV in degrees
 	azimuth: 0.0, // degrees, 0 = +Z toward BH, orbit around Y-up
-	elevation: 0.0, // degrees, -89..+89 (0 = equatorial plane)
+	elevation: 0.0, // not coplanar with disk by default
 	autoRotateAzimuth: false,
 	autoRotateElevation: false,
-	autoDolly: false,
 	rotSpeedDegPerSec: 10.0,
+
+	// mouse drag
+	dragSensitivity: 0.35, // deg per pixel
 	dollyTarget: 8.0, // target distance
 	dollySpeed: 0.5, // lerp factor
-	dragSensitivity: 0.3, // degrees per pixel
+	autoDolly: false,
 
 	// background
 	useTexture: true,
@@ -88,24 +90,29 @@ const params = {
 const derived = { thetaShadowDeg: 0.0 };
 
 const gui = new GUI();
-gui.title(versionNames.assertionDisk);
-gui.add(params, 'massM', 0.2, 5.0, 0.1).name('Mass M');
-gui.add(params, 'observerR', 5.0, 60.0, 1.0).name('Observer r (M)').listen();
-gui.add(params, 'quality', 32, 1024, 4).name('Integration steps');
-gui.add(params, 'fovY', 30, 140, 1).name('FOV (deg)');
-gui.add(params, 'azimuth', -180, 180, 1).name('Orbit azimuth').listen();
-gui.add(params, 'autoRotateAzimuth').name('Auto-rotate Azimuth');
-gui.add(params, 'elevation', -89, 89, 1).name('Orbit elevation').listen();
-gui.add(params, 'autoRotateElevation').name('Auto-rotate Elevation');
-gui.add(params, 'rotSpeedDegPerSec', 1, 60, 1).name('Rotate speed');
-gui.add(params, 'autoDolly').name('Auto dolly zoom');
-gui.add(params, 'dollyTarget', 5, 60, 1).name('Dolly target (M)');
-gui.add(params, 'dollySpeed', 0.1, 5.0, 0.1).name('Dolly speed');
-gui.add(params, 'dragSensitivity', 0.1, 1.0, 0.05).name('Drag sens');
-gui.add(params, 'exposure', 0.2, 3.0, 0.05).name('Exposure');
-gui.add(params, 'gamma', 0.6, 2.2, 0.01).name('Gamma');
-gui.add(params, 'useTexture').name('Use sky texture');
-gui
+gui.title(versionNames.schwarzschild);
+const fPhys = gui.addFolder('Physics');
+fPhys.add(params, 'massM', 0.2, 5.0, 0.1).name('Mass M');
+fPhys.add(params, 'observerR', 5.0, 60.0, 1.0).name('Observer r (M)').listen();
+fPhys.add(params, 'quality', 32, 1024, 4).name('Integration steps');
+
+const fCam = gui.addFolder('Camera');
+fCam.add(params, 'fovY', 30, 140, 1).name('FOV (deg)');
+fCam.add(params, 'azimuth', -180, 180, 1).name('Orbit azimuth').listen();
+fCam.add(params, 'autoRotateAzimuth').name('Auto-rotate Azimuth');
+fCam.add(params, 'elevation', -89, 89, 1).name('Orbit elevation').listen();
+fCam.add(params, 'autoRotateElevation').name('Auto-rotate Elevation');
+fCam.add(params, 'rotSpeedDegPerSec', 1, 60, 1).name('Rotate speed');
+fCam.add(params, 'autoDolly').name('Auto dolly zoom');
+fCam.add(params, 'dollyTarget', 5, 60, 1).name('Dolly target (M)');
+fCam.add(params, 'dollySpeed', 0.1, 5.0, 0.1).name('Dolly speed');
+fCam.add(params, 'dragSensitivity', 0.1, 1.0, 0.05).name('Drag sens');
+
+const fDisp = gui.addFolder('Display');
+fDisp.add(params, 'exposure', 0.2, 3.0, 0.05).name('Exposure');
+fDisp.add(params, 'gamma', 0.6, 2.2, 0.01).name('Gamma');
+fDisp.add(params, 'useTexture').name('Use sky texture');
+fDisp
 	.add(params, 'bg', backgrounds)
 	.name('Background')
 	.onChange((bg: string) => {
@@ -116,7 +123,9 @@ gui
 		};
 	});
 gui.add(derived, 'thetaShadowDeg').name('Shadow θ (deg)').listen();
+
 addVersionFolder(gui);
+
 // ----- Texture -----
 function makeTexture(image: HTMLImageElement) {
 	const tex = gl.createTexture()!;
@@ -140,9 +149,35 @@ let skyTex: WebGLTexture | null = null;
 	};
 }
 
+// ----- Mouse drag orbit -----
+let isDragging = false;
+let lastX = 0,
+	lastY = 0;
+canvas.addEventListener('mousedown', (e) => {
+	isDragging = true;
+	lastX = e.clientX;
+	lastY = e.clientY;
+});
+['mouseup', 'mouseleave'].forEach((ev) =>
+	canvas.addEventListener(ev, () => {
+		isDragging = false;
+	}),
+);
+canvas.addEventListener('mousemove', (e) => {
+	if (!isDragging) return;
+	const dx = e.clientX - lastX;
+	const dy = e.clientY - lastY;
+	lastX = e.clientX;
+	lastY = e.clientY;
+	params.azimuth += dx * params.dragSensitivity;
+	params.elevation -= dy * params.dragSensitivity;
+	if (params.elevation > 89) params.elevation = 89;
+	if (params.elevation < -89) params.elevation = -89;
+});
+
 // ----- Resize & draw -----
 function resizeCanvas() {
-	const dpr = Math.min(window.devicePixelRatio || 1, 2);
+	const dpr = Math.min(window.devicePixelRatio || 1, 3);
 	const w = Math.floor(canvas.clientWidth * dpr);
 	const h = Math.floor(canvas.clientHeight * dpr);
 	if (canvas.width !== w || canvas.height !== h) {
@@ -151,9 +186,7 @@ function resizeCanvas() {
 	}
 	gl.viewport(0, 0, canvas.width, canvas.height);
 }
-function deg2rad(d: number) {
-	return (d * Math.PI) / 180;
-}
+const deg2rad = (d: number) => (d * Math.PI) / 180;
 
 // build a look-at rotation that faces the BH at the origin from an orbital position.
 // We only need the rotation matrix (no translation for the shader).
@@ -208,7 +241,7 @@ function frame(tMs: number) {
 	lastMs = tMs;
 	resizeCanvas();
 
-	// presentation: angular shadow radius in degrees
+	// Angular shadow radius for display
 	const bc = 3 * Math.sqrt(3) * params.massM;
 	derived.thetaShadowDeg = (Math.atan(bc / params.observerR) * 180) / Math.PI;
 
@@ -256,31 +289,3 @@ function frame(tMs: number) {
 	requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-
-let isDragging = false;
-let lastX = 0,
-	lastY = 0;
-
-canvas.addEventListener('mousedown', (e) => {
-	isDragging = true;
-	lastX = e.clientX;
-	lastY = e.clientY;
-});
-canvas.addEventListener('mouseup', () => {
-	isDragging = false;
-});
-canvas.addEventListener('mouseleave', () => {
-	isDragging = false;
-});
-canvas.addEventListener('mousemove', (e) => {
-	if (!isDragging) return;
-	const dx = e.clientX - lastX;
-	const dy = e.clientY - lastY;
-	lastX = e.clientX;
-	lastY = e.clientY;
-
-	params.azimuth += dx * params.dragSensitivity;
-	params.elevation -= dy * params.dragSensitivity;
-	if (params.elevation > 89) params.elevation = 89;
-	if (params.elevation < -89) params.elevation = -89;
-});

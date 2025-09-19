@@ -52,7 +52,7 @@ export default tseslint.config(
 
 			// Some pragmatic TS strictness
 			'@typescript-eslint/no-unsafe-assignment': 'off',
-			'@typescript-eslint/no-unsafe-member-access': 'warn',
+			'@typescript-eslint/no-unsafe-member-access': 'off',
 			'@typescript-eslint/no-explicit-any': ['warn', { fixToUnknown: false }],
 
 			// Cleanup unused stuff
