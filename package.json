@@ -32,6 +32,7 @@
 	},
 	"dependencies": {
 		"husky": "^9.1.7",
+		"lil-gui": "^0.20.0",
 		"lint-staged": "^16.1.6"
 	},
 	"lint-staged": {
