@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Kerr Visualizer</title>
+	<style>
+		html, body, #app { height: 100vh; margin: 0; background: #000;width: 100vw }
+		canvas { width: 100vw; height: 100vh; display: block; }
+		.overlay { position: fixed; top: 8px; left: 8px; color: #9ef; font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; opacity: .7;}
+	</style>
+</head>
+<body>
+<div class="overlay">M0: Starfield (no gravity). Next: RK4 sanity.</div>
+<canvas id="gl"></canvas>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

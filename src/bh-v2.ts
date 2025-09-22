@@ -58,6 +58,21 @@ const uQuality = gl.getUniformLocation(program, 'uQuality');
 const uFovY = gl.getUniformLocation(program, 'uFovY');
 const uCamRot = gl.getUniformLocation(program, 'uCamRot'); // mat3
 
+// Accretion disk uniforms
+const uDiskEnable = gl.getUniformLocation(program, 'uDiskEnable');
+const uDiskRin = gl.getUniformLocation(program, 'uDiskRin');
+const uDiskRout = gl.getUniformLocation(program, 'uDiskRout');
+const uDiskPow = gl.getUniformLocation(program, 'uDiskPow');
+const uDiskTint = gl.getUniformLocation(program, 'uDiskTint');
+const uDiskOpacity = gl.getUniformLocation(program, 'uDiskOpacity');
+const uDiskIncDeg = gl.getUniformLocation(program, 'uDiskIncDeg'); // tilt
+const uDiskPaDeg = gl.getUniformLocation(program, 'uDiskPaDeg'); // position angle
+const uDiskThick = gl.getUniformLocation(program, 'uDiskThick'); // mat3
+const uDiskBrightness = gl.getUniformLocation(program, 'uDiskBrightness');
+const uBeamingGain = gl.getUniformLocation(program, 'uBeamingGain');
+const uOrderFalloff = gl.getUniformLocation(program, 'uOrderFalloff');
+const uDiskBlendMode = gl.getUniformLocation(program, 'uDiskBlendMode');
+
 // ----- GUI params -----
 const params = {
 	// physics
@@ -86,6 +101,21 @@ const params = {
 	// background
 	useTexture: true,
 	bg: backgrounds[0],
+
+	// accretion disk
+	diskEnable: true,
+	diskRin: 6.0, // ~ISCO for Schwarzschild
+	diskRout: 90.0,
+	diskPow: 2.2, // emissivity ~ r^-p
+	diskTint: [1.0, 0.9, 0.75],
+	diskOpacity: 1.0,
+	diskIncDeg: 35.0, // tilt
+	diskPaDeg: 0.0,
+	diskThick: 0.05,
+	diskBrightness: 3.0, // overall intensity
+	beamingGain: 1.5, // >1 brightens approaching side
+	orderFalloff: 1.1, // >1 dims higher orders faster
+	diskBlendMode: 1,
 };
 const derived = { thetaShadowDeg: 0.0 };
 
@@ -122,6 +152,22 @@ fDisp
 			skyTex = makeTexture(img);
 		};
 	});
+
+const fDisk = gui.addFolder('Accretion Disk');
+fDisk.add(params, 'diskEnable').name('Enable disk');
+fDisk.add(params, 'diskRin', 3.0, 50.0, 0.5).name('Inner r (M)');
+fDisk.add(params, 'diskRout', 10.0, 300.0, 1.0).name('Outer r (M)');
+fDisk.add(params, 'diskPow', 0.0, 4.0, 0.1).name('Emissivity p');
+fDisk.addColor(params, 'diskTint').name('Tint');
+fDisk.add(params, 'diskOpacity', 0.0, 1.0, 0.05).name('Opacity');
+fDisk.add(params, 'diskIncDeg', 0.0, 89.0, 1.0).name('Inclination (deg)');
+fDisk.add(params, 'diskPaDeg', -180.0, 180.0, 1.0).name('Position angle');
+fDisk.add(params, 'diskThick', 0.02, 0.1, 0.01).name('Disk Thickness');
+fDisk.add(params, 'diskBrightness', 0.1, 10.0, 0.1).name('Brightness');
+fDisk.add(params, 'beamingGain', 0.8, 2.5, 0.05).name('Beaming gain');
+fDisk.add(params, 'orderFalloff', 0.5, 2.0, 0.05).name('Order falloff');
+fDisk.add(params, 'diskBlendMode', { Replace: 0, Additive: 1 }).name('Blend');
+
 gui.add(derived, 'thetaShadowDeg').name('Shadow θ (deg)').listen();
 
 addVersionFolder(gui);
@@ -274,6 +320,20 @@ function frame(tMs: number) {
 	gl.uniform1i(uUseTex, params.useTexture ? 1 : 0);
 	gl.uniform1i(uQuality, params.quality);
 	gl.uniform1f(uFovY, deg2rad(params.fovY));
+	// Disk uniforms
+	gl.uniform1i(uDiskEnable, params.diskEnable ? 1 : 0);
+	gl.uniform1f(uDiskRin, params.diskRin);
+	gl.uniform1f(uDiskRout, params.diskRout);
+	gl.uniform1f(uDiskPow, params.diskPow);
+	gl.uniform3f(uDiskTint, params.diskTint[0], params.diskTint[1], params.diskTint[2]);
+	gl.uniform1f(uDiskOpacity, params.diskOpacity);
+	gl.uniform1f(uDiskIncDeg, params.diskIncDeg);
+	gl.uniform1f(uDiskPaDeg, params.diskPaDeg);
+	gl.uniform1f(uDiskThick, params.diskThick);
+	gl.uniform1f(uDiskBrightness, params.diskBrightness);
+	gl.uniform1f(uBeamingGain, params.beamingGain);
+	gl.uniform1f(uOrderFalloff, params.orderFalloff);
+	gl.uniform1i(uDiskBlendMode, params.diskBlendMode);
 
 	// Orbit camera -> rotation matrix
 	const rot = orbitRotationMatrix(params.azimuth, params.elevation);
